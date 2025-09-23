@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>디지털 리터러시 공유 앱</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc, collection, query, where, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase config is automatically provided by the environment
+        <selection-tag>const firebaseConfig = {
+          apiKey: "AIzaSyDOJwVXkq55DInNSFJ-okfWj-3VQwM7Wf4",
+          authDomain: "teacher-survey-5e16e.firebaseapp.com",
+          projectId: "teacher-survey-5e16e",
+          storageBucket: "teacher-survey-5e16e.firebasestorage.app",
+          messagingSenderId: "1042903802763",
+          appId: "1:1042903802763:web:52c813d0dd111114ddc58e"
+};
+const appId = firebaseConfig.projectId; // projectId를 앱 ID로 사용
+const initialAuthToken = ''; // GitHub에 올릴 때는 이 값을 비워둡니다.
+</selection-tag>
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let userId = null;
+        let isAuthReady = false;
+
+        const sections = [
+            {
+                title: "1. 디지털 도구 활용",
+                questions: [
+                    { id: "q1", text: "어떤 에듀테크 도구들을 주로 활용하시나요?" },
+                    { id: "q2", text: "온라인 수업 자료의 출처는 어떻게 표기하시나요?" }
+                ]
+            },
+            {
+                title: "2. 정보와 보안",
+                questions: [
+                    { id: "q3", text: "계정의 비밀번호를 안전하게 관리하는 나만의 팁이 있으신가요?" }
+                ]
+            },
+            {
+                title: "3. 콘텐츠 제작",
+                questions: [
+                    { id: "q4", text: "영상 편집을 직접 해보셨다면, 어떤 프로그램을 추천하시나요?" }
+                ]
+            },
+            {
+                title: "4. AI 활용",
+                questions: [
+                    { id: "q5", text: "AI 도구를 수업 준비에 활용해 보셨다면, 어떤 점이 가장 유용했나요?" }
+                ]
+            },
+            {
+                title: "5. 디지털 시민성",
+                questions: [
+                    { id: "q6", text: "학생들에게 온라인 예절을 가르치는 나만의 노하우는 무엇인가요?" }
+                ]
+            }
+        ];
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const appContainer = document.getElementById('app');
+            renderUI(appContainer);
+
+            // Auth State Change Listener
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    isAuthReady = true;
+                    // Listen for changes from other users
+                    setupRealtimeListeners();
+                } else {
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Authentication Error:", error);
+                        document.getElementById('loading').textContent = '인증에 실패했습니다. 새로고침 해주세요.';
+                    }
+                }
+            });
+        });
+
+        function renderUI(container) {
+            let htmlContent = '<div id="loading" class="text-center text-lg text-gray-500 mt-20">잠시만 기다려주세요...</div>';
+            htmlContent += '<div id="content" class="hidden container mx-auto p-4 md:p-8 space-y-8 max-w-2xl bg-white rounded-xl shadow-lg mt-8">';
+            htmlContent += '<h1 class="text-3xl md:text-4xl font-bold text-center text-gray-800">디지털 리터러시 공유 앱</h1>';
+            htmlContent += '<div class="text-center text-sm text-gray-500 mt-2">이 앱은 선생님들의 답변을 실시간으로 공유합니다.<br>새로운 답변이 올라오면 자동으로 업데이트됩니다.</div>';
+            htmlContent += `<div class="p-4 bg-yellow-100 border border-yellow-400 text-yellow-800 rounded-md text-sm text-center mb-4"><span class="font-bold">내 사용자 ID:</span> ${userId}</div>`;
+            
+            sections.forEach(section => {
+                htmlContent += `<div class="p-6 bg-gray-50 rounded-lg shadow-inner">`;
+                htmlContent += `<h2 class="text-xl md:text-2xl font-semibold text-blue-600 mb-4">${section.title}</h2>`;
+                section.questions.forEach(q => {
+                    htmlContent += `<div class="mb-6 p-4 border border-gray-200 rounded-lg bg-white">`;
+                    htmlContent += `<label for="${q.id}" class="block text-lg font-medium text-gray-700 mb-2">${q.text}</label>`;
+                    htmlContent += `<textarea id="${q.id}" class="answer-input w-full p-3 border-2 border-gray-300 rounded-md focus:outline-none focus:border-blue-500 transition duration-200" rows="3" placeholder="답변을 입력해주세요..."></textarea>`;
+                    htmlContent += `<div id="answers-${q.id}" class="mt-4 space-y-3"></div>`;
+                    htmlContent += `</div>`;
+                });
+                htmlContent += `</div>`;
+            });
+
+            htmlContent += '</div>';
+            container.innerHTML = htmlContent;
+        }
+
+        async function setupRealtimeListeners() {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('content');
+            loading.classList.add('hidden');
+            content.classList.remove('hidden');
+
+            // Display user ID after auth is ready
+            const userIdDisplay = document.querySelector('.bg-yellow-100');
+            if (userIdDisplay) {
+                userIdDisplay.innerHTML = `<span class="font-bold">내 사용자 ID:</span> ${userId}`;
+            }
+
+
+            sections.forEach(section => {
+                section.questions.forEach(q => {
+                    // Attach event listener for saving answers
+                    const textarea = document.getElementById(q.id);
+                    if (textarea) {
+                        textarea.addEventListener('input', () => saveAnswer(q.id));
+                    }
+
+                    // Listen for real-time updates from Firestore
+                    const userAnswersRef = collection(db, `artifacts/${appId}/public/data/answers`);
+                    const qry = query(userAnswersRef);
+
+                    onSnapshot(qry, (snapshot) => {
+                        const allAnswers = [];
+                        snapshot.forEach(doc => {
+                            const data = doc.data();
+                            if (data[q.id]) {
+                                allAnswers.push({ userId: doc.id, answer: data[q.id] });
+                            }
+                        });
+                        displayAnswers(q.id, allAnswers);
+                    });
+                });
+            });
+        }
+
+        async function saveAnswer(questionId) {
+            if (!isAuthReady) {
+                console.log("Authentication not ready. Cannot save.");
+                return;
+            }
+
+            const answer = document.getElementById(questionId).value;
+            const docRef = doc(db, `artifacts/${appId}/public/data/answers/${userId}`);
+
+            try {
+                // Use setDoc with merge to update or create a document without overwriting other fields
+                await setDoc(docRef, { [questionId]: answer }, { merge: true });
+            } catch (error) {
+                console.error("답변 저장 중 오류 발생:", error);
+            }
+        }
+
+        function displayAnswers(questionId, answers) {
+            const answersDiv = document.getElementById(`answers-${questionId}`);
+            if (!answersDiv) return;
+
+            answersDiv.innerHTML = ''; // Clear previous answers
+
+            if (answers.length === 0) {
+                answersDiv.innerHTML = '<p class="text-sm text-gray-400">아직 답변이 없습니다. 첫 답변을 남겨주세요!</p>';
+                return;
+            }
+
+            answers.forEach(item => {
+                const answerElement = document.createElement('div');
+                answerElement.className = 'p-3 bg-gray-100 rounded-md';
+                answerElement.innerHTML = `
+                    <p class="text-sm text-gray-500 font-bold mb-1">사용자 ID: ${item.userId}</p>
+                    <p class="text-gray-800">${item.answer}</p>
+                `;
+                answersDiv.appendChild(answerElement);
+            });
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+    <div id="app" class="w-full"></div>
+    <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyDOJwVXkq55DInNSFJ-okfWj-3VQwM7Wf4",
+    authDomain: "teacher-survey-5e16e.firebaseapp.com",
+    projectId: "teacher-survey-5e16e",
+    storageBucket: "teacher-survey-5e16e.firebasestorage.app",
+    messagingSenderId: "1042903802763",
+    appId: "1:1042903802763:web:52c813d0dd111114ddc58e",
+    measurementId: "G-PTJQJXJDT1"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
+</body>
+
+</html>
