@@ -11,18 +11,10 @@
         import { getFirestore, doc, onSnapshot, setDoc, collection, query, where, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Firebase config is automatically provided by the environment
-        const firebaseConfig = {
-          apiKey: "AIzaSyDOJwVXkq55DInNSFJ-okfWj-3VQwM7Wf4",
-          authDomain: "teacher-survey-5e16e.firebaseapp.com",
-          projectId: "teacher-survey-5e16e",
-          storageBucket: "teacher-survey-5e16e.firebasestorage.app",
-          messagingSenderId: "1042903802763",
-          appId: "1:1042903802763:web:52c813d0dd111114ddc58e"
-};
-const appId = firebaseConfig.projectId; // projectId를 앱 ID로 사용
-const initialAuthToken = ''; // GitHub에 올릴 때는 이 값을 비워둡니다.
-
-
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : '';
+        
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
